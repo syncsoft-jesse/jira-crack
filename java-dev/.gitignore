@@ -1,0 +1,6 @@
+# Workspace files
+workspace/*
+!workspace/.gitkeep
+
+# Local overrides (optional - remove if you want to track)
+# docker-compose.override.yml

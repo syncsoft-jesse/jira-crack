@@ -1,0 +1,77 @@
+name: Terraform Deploy
+
+on:
+  workflow_dispatch:  # Manual trigger only
+
+env:
+  TF_VERSION: "1.6.0"
+  AWS_REGION: "ap-southeast-2"
+
+jobs:
+  terraform:
+    name: Terraform
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        env:
+          TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
+          TF_VAR_github_repo: ${{ github.repository }}
+          TF_VAR_domain_name: ${{ secrets.DOMAIN_NAME }}
+          TF_VAR_route53_zone_id: ${{ secrets.ROUTE53_ZONE_ID }}
+        run: terraform plan -no-color -input=false
+        continue-on-error: true
+
+      - name: Remove old HTTP listener (one-time migration)
+        if: github.ref == 'refs/heads/master'
+        run: |
+          # Remove from Terraform state
+          terraform state rm aws_lb_listener.http 2>/dev/null || true
+
+          # Get ALB ARN and delete port 80 listener from AWS
+          ALB_ARN=$(aws elbv2 describe-load-balancers --names "jira-dev-alb" --query "LoadBalancers[0].LoadBalancerArn" --output text 2>/dev/null || true)
+          if [ "$ALB_ARN" != "" ] && [ "$ALB_ARN" != "None" ]; then
+            LISTENER_ARN=$(aws elbv2 describe-listeners --load-balancer-arn "$ALB_ARN" --query "Listeners[?Port==\`80\`].ListenerArn" --output text 2>/dev/null || true)
+            if [ "$LISTENER_ARN" != "" ] && [ "$LISTENER_ARN" != "None" ]; then
+              echo "Deleting old HTTP listener: $LISTENER_ARN"
+              aws elbv2 delete-listener --listener-arn "$LISTENER_ARN" || true
+            fi
+          fi
+        continue-on-error: true
+
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/master'
+        env:
+          TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
+          TF_VAR_github_repo: ${{ github.repository }}
+          TF_VAR_domain_name: ${{ secrets.DOMAIN_NAME }}
+          TF_VAR_route53_zone_id: ${{ secrets.ROUTE53_ZONE_ID }}
+        run: terraform apply -auto-approve -input=false

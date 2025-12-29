@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  java:
+    image: eclipse-temurin:21-jdk
+    container_name: java-dev
+    working_dir: /app
+    volumes:
+      - ./workspace:/app
+      - maven-cache:/root/.m2
+    command: tail -f /dev/null
+    restart: unless-stopped
+
+volumes:
+  maven-cache:

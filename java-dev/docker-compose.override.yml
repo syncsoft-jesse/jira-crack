@@ -1,0 +1,33 @@
+version: '3.8'
+
+# Local development overrides
+# This file is automatically picked up by docker compose
+
+services:
+  java:
+    # Enable interactive mode for local development
+    stdin_open: true
+    tty: true
+
+    # Mount additional directories as needed
+    volumes:
+      - ./workspace:/app
+      - maven-cache:/root/.m2
+      # Mount parent directory to access atlassian-agent.jar
+      - ../:/project:ro
+
+    # Expose ports for debugging or running apps
+    ports:
+      - "8081:8080"    # Application port
+      - "5005:5005"    # Remote debug port
+
+    # Environment variables for development
+    environment:
+      - JAVA_TOOL_OPTIONS=-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005
+      - MAVEN_OPTS=-Xmx512m
+
+    # Resource limits for local dev
+    deploy:
+      resources:
+        limits:
+          memory: 2G
